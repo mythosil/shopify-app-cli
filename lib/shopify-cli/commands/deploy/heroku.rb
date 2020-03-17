@@ -4,14 +4,6 @@ module ShopifyCli
   module Commands
     class Deploy
       class Heroku < ShopifyCli::Task
-        include Helpers::OS
-
-        DOWNLOAD_URLS = {
-          linux: 'https://cli-assets.heroku.com/heroku-linux-x64.tar.gz',
-          mac: 'https://cli-assets.heroku.com/heroku-darwin-x64.tar.gz',
-          windows: 'https://cli-assets.heroku.com/heroku-win32-x64.tar.gz',
-        }
-
         def self.help
           <<~HELP
             Deploy the current app project to Heroku
@@ -24,15 +16,16 @@ module ShopifyCli
 
           spin_group = CLI::UI::SpinGroup.new
           git_service = ShopifyCli::Git.new(@ctx)
+          heroku_service = ShopifyCli::Heroku.new(@ctx)
 
           spin_group.add('Downloading Heroku CLI…') do |spinner|
-            heroku_download
+            heroku_service.download
             spinner.update_title('Downloaded Heroku CLI')
           end
           spin_group.wait
 
           spin_group.add('Installing Heroku CLI…') do |spinner|
-            heroku_install
+            heroku_service.install
             spinner.update_title('Installed Heroku CLI')
           end
           spin_group.add('Checking git repo…') do |spinner|
@@ -41,16 +34,16 @@ module ShopifyCli
           end
           spin_group.wait
 
-          if (account = heroku_whoami)
+          if (account = heroku_service.whoami)
             spin_group.add("Authenticated with Heroku as `#{account}`") { true }
             spin_group.wait
           else
             CLI::UI::Frame.open("Authenticating with Heroku…", success_text: '{{v}} Authenticated with Heroku') do
-              heroku_authenticate
+              heroku_service.authenticate
             end
           end
 
-          if (app_name = heroku_app)
+          if (app_name = heroku_service.app) 
             spin_group.add("Heroku app `#{app_name}` selected") { true }
             spin_group.wait
           else
@@ -65,11 +58,11 @@ module ShopifyCli
                 "Selecting Heroku app `#{app_name}`…",
                 success_text: "{{v}} Heroku app `#{app_name}` selected"
               ) do
-                heroku_select_existing_app(app_name)
+                heroku_service.select_existing_app(app_name)
               end
             elsif app_type == :new
               CLI::UI::Frame.open('Creating new Heroku app…', success_text: '{{v}} New Heroku app created') do
-                heroku_create_new_app
+                heroku_service.create_new_app
               end
             end
           end
@@ -90,95 +83,6 @@ module ShopifyCli
           CLI::UI::Frame.open('Deploying to Heroku…', success_text: '{{v}} Deployed to Heroku') do
             heroku_deploy(branch_to_deploy)
           end
-        end
-
-        private
-
-        def heroku_app
-          return nil if heroku_git_remote.nil?
-          app = heroku_git_remote
-          app = app.split('/').last
-          app = app.split('.').first
-          app
-        end
-
-        def heroku_authenticate
-          result = @ctx.system(heroku_command, 'login')
-          raise(ShopifyCli::Abort, "{{x}} Could not authenticate with Heroku") unless result.success?
-        end
-
-        def heroku_command
-          local_path = File.join(ShopifyCli::ROOT, 'heroku', 'bin', 'heroku').to_s
-          if File.exist?(local_path)
-            local_path
-          else
-            'heroku'
-          end
-        end
-
-        def heroku_create_new_app
-          output, status = @ctx.capture2e(heroku_command, 'create')
-          raise(ShopifyCli::Abort, '{{x}} Heroku app could not be created') unless status.success?
-          @ctx.puts(output)
-
-          new_remote = output.split("\n").last.split("|").last.strip
-          result = @ctx.system('git', 'remote', 'add', 'heroku', new_remote)
-          msg = "{{x}} Heroku app created, but couldn’t be set as a git remote"
-          raise(ShopifyCli::Abort, msg) unless result.success?
-        end
-
-        def heroku_deploy(branch_to_deploy)
-          result = @ctx.system('git', 'push', '-u', 'heroku', "#{branch_to_deploy}:master")
-          raise(ShopifyCli::Abort, "{{x}} Could not deploy to Heroku") unless result.success?
-        end
-
-        def heroku_download
-          return if heroku_installed?
-
-          result = @ctx.system('curl', '-o', heroku_download_path, DOWNLOAD_URLS[os], chdir: ShopifyCli::ROOT)
-          raise(ShopifyCli::Abort, "{{x}} Heroku CLI could not be downloaded") unless result.success?
-          raise(ShopifyCli::Abort, "{{x}} Heroku CLI could not be downloaded") unless File.exist?(heroku_download_path)
-        end
-
-        def heroku_download_filename
-          URI.parse(DOWNLOAD_URLS[os]).path.split('/').last
-        end
-
-        def heroku_download_path
-          File.join(ShopifyCli::ROOT, heroku_download_filename)
-        end
-
-        def heroku_git_remote
-          output, status = @ctx.capture2e('git', 'remote', 'get-url', 'heroku')
-          status.success? ? output : nil
-        end
-
-        def heroku_install
-          return if heroku_installed?
-
-          result = @ctx.system('tar', '-xf', heroku_download_path, chdir: ShopifyCli::ROOT)
-          raise(ShopifyCli::Abort, "{{x}} Could not install Heroku CLI") unless result.success?
-
-          FileUtils.rm(heroku_download_path)
-        end
-
-        def heroku_installed?
-          _output, status = @ctx.capture2e(heroku_command, '--version')
-          status.success?
-        rescue
-          false
-        end
-
-        def heroku_select_existing_app(app_name)
-          result = @ctx.system(heroku_command, 'git:remote', '-a', app_name)
-          msg = "{{x}} Heroku app `#{app_name}` could not be selected"
-          raise(ShopifyCli::Abort, msg) unless result.success?
-        end
-
-        def heroku_whoami
-          output, status = @ctx.capture2e(heroku_command, 'whoami')
-          return output.strip if status.success?
-          nil
         end
       end
     end
