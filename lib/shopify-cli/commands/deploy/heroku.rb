@@ -43,7 +43,7 @@ module ShopifyCli
             end
           end
 
-          if (app_name = heroku_service.app) 
+          if (app_name = heroku_service.app)
             spin_group.add("Heroku app `#{app_name}` selected") { true }
             spin_group.wait
           else
@@ -81,7 +81,7 @@ module ShopifyCli
           end
 
           CLI::UI::Frame.open('Deploying to Heroku…', success_text: '{{v}} Deployed to Heroku') do
-            heroku_deploy(branch_to_deploy)
+            heroku_service.deploy(branch_to_deploy)
           end
         end
       end
